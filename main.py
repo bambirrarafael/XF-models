@@ -1,28 +1,15 @@
 import numpy as np
+import sobol_seq
+import scipy.optimize as opt
 import matplotlib.pyplot as plt
-from copy import deepcopy
-from plotScenarios import plot_scenarios
-from portfolioParameters import Parameters
-from findSolutions import find_solutions
-from findSolutions import find_harmonious_solution
-from findFunctionValues import find_function_values
-from setOptmizationBounds import adjust_bounds
-from adjustScenarios import adjust_PLD
-from adjustScenarios import adjust_GSF
-from normalizeSolutions import normalize_solution
-from objectiveFunctions import npv_cost
-from objectiveFunctions import vol_cost
-from objectiveFunctions import vol_gfis
-from objectiveFunctions import res_diversity
-from portfolioCharacteristcs import calc_exposure
-from portfolioCharacteristcs import calc_res
-from portfolioCharacteristcs import calc_req
-from buildPayoffMatrixes import build_payoff_cost
-from buildPayoffMatrixes import build_payoff_vol_cost
-from buildPayoffMatrixes import build_payoff_vol_gfis
-from buildPayoffMatrixes import build_payoff_div
-from buildPayoffMatrixes import add_sol_nothing
-from buildPayoffMatrixes import add_sol_nothing_2_obj
+from objectiveFunctions import max_scalability
+from objectiveFunctions import min_scalability
+from objectiveFunctions import max_impact
+from objectiveFunctions import min_impact
+from objectiveFunctions import max_financial_return
+from objectiveFunctions import min_financial_return
+from objectiveFunctions import maxmin
+from buildPayoffMatrixes import build_payoff_matrix
 from XFModel import build_regret_matrix
 from XFModel import build_choice_criteria_matrix
 from XFModel import build_normalized_choice_criteria_matrix
@@ -30,139 +17,109 @@ from XFModel import build_normalized_choice_criteria_matrix
 
 #
 # initial parameters
-pr = Parameters()
-n_var = pr.n * pr.T
-#
-# number of obj func
-n_fo = 4
-# number of scenarios
+n_var = 4
+n_fo = 3
 n_scen = 7
-pr.p_spott = adjust_PLD(pr.p_spott, n_scen, 2)
-pr.GSF = adjust_GSF(pr.GSF, n_scen, 2)
-plot_scenarios(n_scen, False, pr.p_spott, pr.GSF)
+cs = np.array([[(0.35, 0.4), (0.5, 0.6), (0.2, 0.3), (0.3, 0.35)],
+               [(0.25, 0.3), (0.3, 0.4), (0.15, 0.2), (0.05, 0.1)],
+               [(8.6, 9.5), (8.5, 10), (10, 12), (8.5, 9.8)]])
+opt_meth = 'SLSQP'
 #
-# place to store solutions for each scenario
-sol_harmonious = []
-for s in range(n_scen):
-    #
-    # initial optimization parameters
-    x0 = np.zeros(n_var)
-    bnds = int(n_var/2) * [pr.asset_bounds, pr.asset_bounds]
-    bnds = adjust_bounds(bnds)
-    #
-    # find harmonious solution
-    solutions = find_solutions(x0, s, bnds, n_fo)
-    # vals = find_function_values(solutions)  # todo verificar
-    harmonious_solution = find_harmonious_solution(solutions['Minimum Cost'][4], s, bnds, solutions, pr.lambd, n_fo)
-    #
-    # update solutions
-    solutions.update({'Harmonious Solution': [npv_cost(harmonious_solution.x, s), vol_cost(harmonious_solution.x, s),
-                                              vol_gfis(harmonious_solution.x, s), res_diversity(harmonious_solution.x),
-                                              harmonious_solution.x]})
-    # sol_nothing.append(solutions["Don't do nothing"])
-    sol_harmonious.append(solutions['Harmonious Solution'])
+# create states of nature
+points = sobol_seq.i4_sobol_generate(n_var*n_fo, n_scen)
+estates_of_nature = np.zeros([n_scen, n_var, n_fo])
+for i in range(n_scen):
+    col = 0
+    for k in range(n_fo):
+        for j in range(n_var):
+            aux = (cs[k, j, 1] - cs[k, j, 0])*(1 - points[i, col])
+            estates_of_nature[i, j, k] = cs[k, j, 1] - aux
+            col += 1
+#
+# Define problem goal, bounds and constraints
+def constraint(x):
+    return 1700 - np.sum(x)
+cons = [{'type': 'ineq', 'fun': constraint}]
+x0 = np.zeros(n_var)    # initial point for optimization
+bounds = [(0, 400), (0,  550), (0, 650), (0, 500)]
+#
+# find 2*n + 1 solutions for all scenarios
+mono_obj_sol = np.zeros([n_fo, 2])
+harm_sol = np.zeros([n_scen, n_var])
+a = [max_scalability, max_impact, max_financial_return]
+a_inv = [min_scalability, min_impact, min_financial_return]
+goal = [max_scalability, min_impact, max_financial_return]
+"""for i in range(n_scen):
+    for k in range(n_fo):
+        mono_obj_sol[k, 0] = opt.minimize(a[k], x0=x0, args=(estates_of_nature, i), constraints=cons, bounds=bounds,
+                                          method=opt_meth).fun
+        mono_obj_sol[k, 1] = opt.minimize(a_inv[k], x0=x0, args=(estates_of_nature, i), constraints=cons, bounds=bounds,
+                                          method=opt_meth).fun
+    x0inp = opt.minimize(goal[0], x0=x0, args=(estates_of_nature, i), constraints=cons, bounds=bounds).x
+    harm_sol[i, :] = opt.minimize(maxmin, x0=x0inp, args=(estates_of_nature, i, n_fo, mono_obj_sol), constraints=cons,
+                                  bounds=bounds, method=opt_meth).x"""
+
+A = [np.ones(n_var)]
+b = 1700
+for i in range(n_scen):
+    for k in range(n_fo):
+        c = estates_of_nature[i, :, k]
+        # c = list(c)
+        if k == 1:
+            mono_obj_sol[k, 0] = opt.linprog(c, A_ub=A, b_ub=b, bounds=bounds).fun
+            mono_obj_sol[k, 1] = opt.linprog(-c, A_ub=A, b_ub=b, bounds=bounds).fun
+        else:
+            mono_obj_sol[k, 0] = opt.linprog(-c, A_ub=A, b_ub=b, bounds=bounds).fun
+            mono_obj_sol[k, 1] = opt.linprog(c, A_ub=A, b_ub=b, bounds=bounds).fun
+    x0inp = opt.linprog(estates_of_nature[0, :, 0], A_ub=A, b_ub=b, bounds=bounds).x
+    harm_sol[i, :] = opt.minimize(maxmin, x0=x0inp, args=(estates_of_nature, i, n_fo, mono_obj_sol), constraints=cons,
+                                  bounds=bounds, method=opt_meth).x
+
+
 #
 # remove duplicate solutions
-aux = []
-for i in range(len(sol_harmonious)):
-    aux.append(sol_harmonious[i][4])
-unique_sol = np.unique(aux, axis=0)
+unique_sol = np.unique(harm_sol, axis=0)
 n_alt = len(unique_sol)
+print(' ----- unique solution ----- ')
+print(unique_sol)
+print('\n')
 #
 # build payoffs
-if n_fo == 2:
-    payoff_cost = build_payoff_cost(unique_sol, n_alt, n_scen)
-    payoff_vol_cost = build_payoff_vol_cost(unique_sol, n_alt, n_scen)
-    # -------------------------------------------------------------------------------------------------------------------
-    #pm_cost, pm_vol_cost = add_sol_nothing_2_obj(payoff_cost, payoff_vol_cost, n_scen)
-    pm_cost = payoff_cost
-    pm_vol_cost = payoff_vol_cost
-elif n_fo == 3:
-    payoff_cost = build_payoff_cost(unique_sol, n_alt, n_scen)
-    payoff_vol_cost = build_payoff_vol_cost(unique_sol, n_alt, n_scen)
-    payoff_vol_gfis = build_payoff_vol_gfis(unique_sol, n_alt, n_scen)
-    #-------------------------------------------------------------------------------------------------------------------
-    #pm_cost, pm_vol_cost, pm_vol_gfis, pm_divers = add_sol_nothing(payoff_cost, payoff_vol_cost, payoff_vol_gfis,
-    #                                                               payoff_divers, n_scen)
-    pm_cost = payoff_cost
-    pm_vol_cost = payoff_vol_cost
-    pm_vol_gfis = payoff_vol_gfis
-else:
-    payoff_cost = build_payoff_cost(unique_sol, n_alt, n_scen)
-    payoff_vol_cost = build_payoff_vol_cost(unique_sol, n_alt, n_scen)
-    payoff_vol_gfis = build_payoff_vol_gfis(unique_sol, n_alt, n_scen)
-    payoff_divers = build_payoff_div(unique_sol, n_alt, n_scen)
-    #-------------------------------------------------------------------------------------------------------------------
-    #pm_cost, pm_vol_cost, pm_vol_gfis, pm_divers = add_sol_nothing(payoff_cost, payoff_vol_cost, payoff_vol_gfis,
-    #                                                               payoff_divers, n_scen)
-    pm_cost = payoff_cost
-    pm_vol_cost = payoff_vol_cost
-    pm_vol_gfis = payoff_vol_gfis
-    pm_divers = payoff_divers
+payoffs = build_payoff_matrix(unique_sol, n_alt=n_alt, n_scen=n_scen, est=estates_of_nature, goal=goal)
+payoff_scalability = -payoffs[0]
+payoff_impact = payoffs[1]
+payoff_financial_return = -payoffs[2]
+print(' ----- payoff scalability ----- ')
+print(payoff_scalability)
+print(' ----- payoff impact ----- ')
+print(payoff_impact)
+print(' ----- payoff financial return ----- ')
+print(payoff_financial_return)
+print('\n')
+#
+# ============= <X, F> Model ===========
+alpha = 0.75
 #
 # build regret matrix
-if n_fo == 2:
-    r_cost = build_regret_matrix(pm_cost)
-    r_vol_cost = build_regret_matrix(pm_vol_cost)
-    #
-    cc_cost = build_choice_criteria_matrix(pm_cost, pr.alpha)
-    cc_vol_cost = build_choice_criteria_matrix(pm_vol_cost, pr.alpha)
-    #
-    ncc_cost = build_normalized_choice_criteria_matrix(cc_cost)
-    ncc_vol_cost = build_normalized_choice_criteria_matrix(cc_vol_cost)
-    #
-    result = np.zeros([n_alt, 4])
-    for i in range(n_alt):
-        for j in range(4):
-            result[i, j] = np.min([ncc_cost[i, j], ncc_vol_cost[i, j]])
-elif n_fo == 3:
-    r_cost = build_regret_matrix(pm_cost)
-    r_vol_cost = build_regret_matrix(pm_vol_cost)
-    r_vol_gfis = build_regret_matrix(pm_vol_gfis)
-    #
-    cc_cost = build_choice_criteria_matrix(pm_cost, pr.alpha)
-    cc_vol_cost = build_choice_criteria_matrix(pm_vol_cost, pr.alpha)
-    cc_vol_gfis = build_choice_criteria_matrix(pm_vol_gfis, pr.alpha)
-    #
-    ncc_cost = build_normalized_choice_criteria_matrix(cc_cost)
-    ncc_vol_cost = build_normalized_choice_criteria_matrix(cc_vol_cost)
-    ncc_vol_gfis = build_normalized_choice_criteria_matrix(cc_vol_gfis)
-    #
-    result = np.zeros([n_alt, 4])
-    for i in range(n_alt):
-        for j in range(4):
-            result[i, j] = np.min([ncc_cost[i, j], ncc_vol_cost[i, j], ncc_vol_gfis[i, j]])
-else:
-    r_cost = build_regret_matrix(pm_cost)
-    r_vol_cost = build_regret_matrix(pm_vol_cost)
-    r_vol_gfis = build_regret_matrix(pm_vol_gfis)
-    r_divers = build_regret_matrix(pm_divers)
-    #
-    cc_cost = build_choice_criteria_matrix(pm_cost, pr.alpha)
-    cc_vol_cost = build_choice_criteria_matrix(pm_vol_cost, pr.alpha)
-    cc_vol_gfis = build_choice_criteria_matrix(pm_vol_gfis, pr.alpha)
-    cc_divers = build_choice_criteria_matrix(pm_divers, pr.alpha)
-    #
-    ncc_cost = build_normalized_choice_criteria_matrix(cc_cost)
-    ncc_vol_cost = build_normalized_choice_criteria_matrix(cc_vol_cost)
-    ncc_vol_gfis = build_normalized_choice_criteria_matrix(cc_vol_gfis)
-    ncc_divers = build_normalized_choice_criteria_matrix(cc_divers)
-    #
-    result = np.zeros([n_alt, 4])
-    for i in range(n_alt):
-        for j in range(4):
-            result[i, j] = np.min([ncc_cost[i, j], ncc_vol_cost[i, j], ncc_vol_gfis[i, j], ncc_divers[i, j]])
+r_scalability = build_regret_matrix(payoff_scalability)
+r_impact = build_regret_matrix(payoff_impact)
+r_financial_return = build_regret_matrix(payoff_financial_return)
 #
+cc_scalability = build_choice_criteria_matrix(r_scalability, alpha)
+cc_impact = build_choice_criteria_matrix(r_impact, alpha)
+cc_financial_return = build_choice_criteria_matrix(r_financial_return, alpha)
+#
+ncc_scalability = build_normalized_choice_criteria_matrix(cc_scalability)
+ncc_impact = build_normalized_choice_criteria_matrix(cc_impact)
+ncc_financial_return = build_normalized_choice_criteria_matrix(cc_financial_return)
+#
+result = np.zeros([n_alt, 4])
+for i in range(n_alt):
+    for j in range(n_fo):
+        result[i, j] = np.min([ncc_scalability[i, j], ncc_impact[i, j], ncc_financial_return[i, j]])
+#
+print('------------------------')
 print(result)
-#
-# plot results
-d = np.zeros([5, 10])
-a = calc_exposure(d, 0)
-b = calc_res(d, 0)
-c = calc_req(d)
-plt.plot(np.arange(0, pr.T), a, label='exposure')
-plt.plot(np.arange(0, pr.T), b, label='resources')
-plt.plot(np.arange(0, pr.T), c, label='requirements')
-plt.legend()
-plt.show()
+print('\n')
+print('----------- END -------------')
 
