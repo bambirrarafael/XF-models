@@ -14,7 +14,10 @@ from XFModel import build_regret_matrix
 from XFModel import build_choice_criteria_matrix
 from XFModel import build_normalized_choice_criteria_matrix
 
-
+#
+# number print format
+float_formatter = "{:.2f}".format
+np.set_printoptions(formatter={'float_kind':float_formatter})
 #
 # initial parameters
 n_var = 4
@@ -104,21 +107,43 @@ alpha = 0.75
 r_scalability = build_regret_matrix(payoff_scalability)
 r_impact = build_regret_matrix(payoff_impact)
 r_financial_return = build_regret_matrix(payoff_financial_return)
+print(' -----regret scalability ----- ')
+print(r_scalability)
+print(' ----- regret impact ----- ')
+print(r_scalability)
+print(' ----- regret financial return ----- ')
+print(r_scalability)
+print('\n')
 #
 cc_scalability = build_choice_criteria_matrix(r_scalability, alpha)
 cc_impact = build_choice_criteria_matrix(r_impact, alpha)
 cc_financial_return = build_choice_criteria_matrix(r_financial_return, alpha)
+print(' ----- choice criteria scalability ----- ')
+print(cc_scalability)
+print(' ----- choice criteria  impact ----- ')
+print(cc_impact)
+print(' ----- choice criteria  financial return ----- ')
+print(cc_financial_return)
+print('\n')
 #
 ncc_scalability = build_normalized_choice_criteria_matrix(cc_scalability)
 ncc_impact = build_normalized_choice_criteria_matrix(cc_impact)
 ncc_financial_return = build_normalized_choice_criteria_matrix(cc_financial_return)
+print(' ----- normalized choice criteria scalability ----- ')
+print(ncc_scalability)
+print(' ----- normalized choice criteria  impact ----- ')
+print(ncc_impact)
+print(' ----- normalized choice criteria  financial return ----- ')
+print(ncc_financial_return)
+print('\n')
 #
 result = np.zeros([n_alt, 4])
 for i in range(n_alt):
-    for j in range(n_fo):
+    for j in range(4):
         result[i, j] = np.min([ncc_scalability[i, j], ncc_impact[i, j], ncc_financial_return[i, j]])
 #
-print('------------------------')
+print('---------- RESULT -----------')
+print('\n')
 print(result)
 print('\n')
 print('----------- END -------------')
