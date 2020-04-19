@@ -118,17 +118,6 @@ for i in range(n_scen):
             f_.x_min = res.x
         else:
             warnings.warn("Otimização mal sucedida.")
-
-    def muD_max(F, x):
-        x = np.array(x)
-        return np.min([f_.mu(x) for f_ in F])
-
-
-    def muD_min(x):
-        x = np.array(x)
-        return np.max([f_.mu(x) * -1 for f_ in F])
-
-
     X = heuristica_relogio(F, f1.x_min, bounds, 0.01)
     harm_sol[i, :] = X
 

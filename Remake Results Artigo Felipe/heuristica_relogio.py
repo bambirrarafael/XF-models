@@ -7,7 +7,7 @@ def muD_max(F, x):
     return np.min([f_.mu(x) for f_ in F])
 
 
-def muD_min(x):
+def muD_min(F, x):
     x = np.array(x)
     return np.max([f_.mu(x) * -1 for f_ in F])
 
