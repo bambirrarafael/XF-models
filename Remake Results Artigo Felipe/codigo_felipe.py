@@ -129,7 +129,7 @@ for i in range(n_scen):
         return np.max([f_.mu(x) * -1 for f_ in F])
 
 
-    X = heuristica_relogio(F, f1.x_max, bounds, 0.05)
+    X = heuristica_relogio(F, f1.x_min, bounds, 0.01)
     harm_sol[i, :] = X
 
 #
